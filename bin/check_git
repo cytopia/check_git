@@ -885,6 +885,6 @@ if [ "${OUTPUT_LOGFILE}" = "1" ]; then
 	echo "${NAGIOS_EXIT_CODE}" >> "${OUTPUT_LOGFILE_NAME}"
 	exit "${EXIT_OK}"
 else
-	printf "${NAGIOS_EXIT_TEXT}\n"
+	printf "%s${NAGIOS_EXIT_TEXT}\n" ""
 	exit "${NAGIOS_EXIT_CODE}"
 fi
