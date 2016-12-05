@@ -845,5 +845,5 @@ if [ "${OUTPUT_NAGIOS}" = "1" ]; then
 	fi
 fi
 
-echo "${NAGIOS_EXIT_TEXT}"
+printf "${NAGIOS_EXIT_TEXT}\n"
 exit "${NAGIOS_EXIT_CODE}"
