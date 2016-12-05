@@ -6,6 +6,6 @@ before_script:
   - sudo apt-get install -qq shellcheck
 
 script:
-  - shellcheck --shell=sh bin/check_git
+  - shellcheck --shell=sh -e SC2034 bin/check_git
   - shellcheck --shell=sh bin/check_git_log
 

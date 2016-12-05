@@ -8,7 +8,7 @@ INFO_GPGKEY="0x695128A2"
 INFO_LICENSE="MIT"
 INFO_GITHUB="https://github.com/cytopia/check_git"
 INFO_DATE="2016-12-05"
-INFO_VERSION="0.2"
+INFO_VERSION="0.3"
 
 
 ################################################################################
@@ -422,8 +422,8 @@ git_branch_is_in_sync_with_remote() {
 	if git_on_any_branch "${_path}"; then
 		_branch="$( run "cd ${_path} && git branch --no-color | grep '^*' | sed 's/^*[[:space:]]*//g'" )"
 
-		# Try to fetch remote 9 times in case something goes wrong
-		for i in 1 2 3 4 5 6 7 8 9; do
+		# Try to fetch remote 15 times in case something goes wrong
+		for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
 			# Break on early success
 			set +e
 			if run "cd ${_path} && git fetch --no-recurse-submodules --no-tags --quiet > /dev/null 2>&1"; then
@@ -433,7 +433,7 @@ git_branch_is_in_sync_with_remote() {
 		done
 
 		# Try to diff remote 9 times in case something goes wrong
-		for i in 1 2 3 4 5 6 7 8 9; do
+		for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
 			set +e
 			_diff="$( run "cd ${_path} && git diff ${_ign_sub} ${_remote}/${_branch} 2>/dev/null"; )"
 			_exit="$?"
