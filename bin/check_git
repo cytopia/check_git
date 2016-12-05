@@ -1,0 +1,849 @@
+#!/bin/sh -eu
+
+
+# Some creds
+INFO_NAME="check_git"
+INFO_AUTHOR="cytopia <cytopia@everythingcli.org>"
+INFO_GPGKEY="0x695128A2"
+INFO_LICENSE="MIT"
+INFO_GITHUB="https://github.com/cytopia/check_git"
+INFO_DATE="2016-12-05"
+INFO_VERSION="0.1"
+
+
+################################################################################
+# Program functions
+################################################################################
+
+print_usage() {
+
+	echo "USAGE: check_git -d <git dir> [-n [<name>]] [-s|-S] [-r|-R <remote>] [-b [<branch>]|-t [<tag>]] [-g]"
+	echo "                 -h"
+	echo "                 -v"
+
+	echo
+	echo "check_git can validate a git repository by different requirements"
+	echo "You can have normal output or nagios (-n) compatible output to"
+	echo "integrate this into your monitoring system."
+	echo
+
+	echo " Required arguments:"
+	echo
+
+	echo "   -d <git dir>       Specify path to git repository."
+	echo
+
+
+	echo " Optional arguments (output):"
+	echo
+
+	echo "   -n [<name>]        Create nagios check outout. You can optionally"
+	echo "                      add a name for the output display."
+	echo
+
+	echo " Optional arguments (checks):"
+	echo
+
+	echo "   -s                 Check if git directory is clean."
+	echo "                      This also take any submodules into account."
+	echo "                      To prevent checking submodules use '-S'."
+	echo "                      '-s' and '-S' are mutually exclusive."
+	echo
+
+	echo "   -S                 Check if git directory is clean (ignore submodules)".
+	echo "                      This ignores any submodules."
+	echo "                      To also check against submodules use '-s'."
+	echo "                      '-s' and '-S' are mutually exclusive."
+	echo
+	echo
+
+	echo "   -r <remote>        Check if git repository is in sync with remote."
+	echo "                      This option makes only sense, if your repository is"
+	echo "                      checked out on a branch that can be compared with remote."
+	echo "                      This also take any submodules into account."
+	echo "                      To prevent checking submodules use '-R'."
+	echo "                      '-r' and '-R' are mutually exclusive."
+	echo
+
+	echo "   -R <remote>        Check if git repository is in sync with remote (ignore submodules)."
+	echo "                      This option makes only sense, if your repository is"
+	echo "                      checked out on a branch that can be compared with remote."
+	echo "                      This ignores any submodules."
+	echo "                      To also check submodules use '-r'."
+	echo "                      '-r' and '-R' are mutually exclusive."
+
+	echo "   -b [<branch>]      Check if repository is checkout out on a branch."
+	echo "                      No detached HEAD or tag."
+	echo "                      You can also optionally specify the branch name the repository"
+	echo "                      is supposed to be on."
+	echo "                      '-b' and '-t' are mutually exclusive."
+	echo
+
+	echo "   -t [<tag>]         Check if repository is checkout out on a tag."
+	echo "                      No detached HEAD or branch."
+	echo "                      You can also optionally specify the tag name the repository"
+	echo "                      is supposed to be on."
+	echo "                      '-b' and '-t' are mutually exclusive."
+	echo
+
+	echo "   -g                 Check if current commit (independent of branch, tag or detached HEAD)"
+	echo "                      is signed and has a valid GPG signature."
+	echo "                      For this to work, you will have to add your trusted"
+	echo "                      GPG public keys locally."
+	echo
+
+	echo " Version and Help:"
+	echo
+
+	echo "   -v                 Show version information"
+	echo "   -h                 Show this help screen"
+
+}
+
+# Give some creds
+# @output string  The creds.
+# @return integer 0
+print_version() {
+	printf "Name:    %s\n" "${INFO_NAME}"
+	printf "Version: %s (%s)\n" "${INFO_VERSION}" "${INFO_DATE}"
+	printf "Author:  %s (%s)\n" "${INFO_AUTHOR}" "${INFO_GPGKEY}"
+	printf "Github:  %s\n" "${INFO_GITHUB}"
+	printf "License: %s\n" "${INFO_LICENSE}"
+	return 0
+}
+
+
+# Aggregate nagios exit code.
+# OK < Warning < Error < Unknown
+#
+# @param  integer The current exit code.
+# @param  integer The new exit code
+# @output integer The combined exit code
+merge_exit_codes() {
+	_curr_exit="$1"
+	_next_exit="$2"
+
+	# OK
+	if [ "${_curr_exit}" = "0" ]; then
+		_curr_exit="${_next_exit}"
+	# Warning
+	elif [ "${_curr_exit}" = "1" ]; then
+		if [ "${_next_exit}" = "0" ]; then
+			_curr_exit="1"
+		elif [ "${_next_exit}" = "1" ]; then
+			_curr_exit="1"
+		elif [ "${_next_exit}" = "2" ]; then
+			_curr_exit="2"
+		elif [ "${_next_exit}" = "3" ]; then # UNKNOWN -> WARNING
+			_curr_exit="1"
+		fi
+	# Error
+	elif [ "${_curr_exit}" = "2" ]; then
+		_curr_exit="2"
+	# Unknown
+	elif [ "${_curr_exit}" = "3" ]; then
+		if [ "${_next_exit}" = "0" ]; then
+			_curr_exit="3"
+		elif [ "${_next_exit}" = "1" ]; then
+			_curr_exit="1"
+		elif [ "${_next_exit}" = "2" ]; then
+			_curr_exit="2"
+		elif [ "${_next_exit}" = "3" ]; then # UNKNOWN -> WARNING
+			_curr_exit="3"
+		fi
+	fi
+	echo "${_curr_exit}"
+}
+
+
+# Merge two texts with a delimiter
+#
+# @param  string  The current text
+# @param  string  The new text
+# @param  string  (Optional) The separator
+# @output stringr The combined text
+merge_text() {
+	_curr_text="${1}"
+	_next_text="${2}"
+	_separator="${3:-}"
+
+	if [ "${_separator}" = "" ]; then
+		_separator="\n"
+	fi
+
+	if [ "${_curr_text}" = "" ]; then
+		_curr_text="${_next_text}"
+	else
+		_curr_text="${_curr_text}${_separator}${_next_text}"
+	fi
+	echo "${_curr_text}"
+}
+
+
+################################################################################
+# Helper functions
+################################################################################
+
+# Run wrapper to make sure no aliases are used.
+#
+# @param  string  The command to execute
+# @return integer Unix exit code
+run() {
+	_cmd="${1}"
+	sh -c "LANG=C LC_ALL=C ${_cmd}"
+}
+
+
+
+################################################################################
+# Git helper functions
+################################################################################
+
+# Check if a given path is a valid git repository.
+#
+# @param  string  Git repository path
+# @return integer Unix exit code
+is_git_dir() {
+	_path="${1}"
+
+	if [ ! -d "${_path}" ]; then
+		return 1
+	fi
+
+	if ! run "cd ${_path} && git rev-parse --is-inside-work-tree" > /dev/null 2>&1; then
+		return 1
+	fi
+
+	return 0
+}
+
+# Check if a remote exists
+#
+# @param  string  Git repository path
+# @return integer Unix exit code
+has_remote() {
+	_path="${1}"
+
+	if ! run "cd ${_path} && git ls-remote --quiet > /dev/null 2>&1"; then
+		return 1
+	else
+		return 0
+	fi
+}
+
+# Returns the current branch name of a git repository
+# or an empty string if not on a branch.
+# Success is determined by the unix exit code.
+#
+# @param  string  Git repository path
+# @output string  Current branch name or empty string
+# @return integer Unix exit code
+get_current_branch() {
+	_path="${1}"
+
+	_branch="$( run "cd ${_path} && git branch --no-color | grep '^*' | sed 's/^*[[:space:]]*//g' | sed 's/^(.*)$/(nobranch)/g'" )"
+	if [ "${_branch}" != "(nobranch)" ]; then
+		echo "${_branch}"
+		return 0
+	else
+		echo ""
+		return 1
+	fi
+}
+
+# Returns the current tag name of a git repository
+# or an empty string if not on a tag.
+# Success is determined by the unix exit code.
+#
+# @param  string  Git repository path
+# @output string  Current tag name or empty string
+# @return integer Unix exit code
+get_current_tag() {
+	_path="${1}"
+
+	_tag="$( run "cd ${_path} && git tag --contains" )"
+	if [ "${_tag}" != "" ]; then
+		echo "${_tag}"
+		return 0
+	else
+		echo ""
+		return 1
+	fi
+}
+
+################################################################################
+# Git functions
+################################################################################
+
+# Check if your repository is clean.
+# You also have to specify whether or not to ignore submodules.
+#
+# @param  string  Git repository path
+# @param  boolean Ignore submodules? (1: Ignore, 0: Don't Ignore)
+# @return integer Unix exit code
+git_status() {
+	_path="${1}"
+	_ign_sub="${2}"
+
+	if [ "${_ign_sub}" = "1" ]; then
+		_ign_sub="--ignore-submodules"
+	else
+		_ign_sub=""
+	fi
+
+	_output="$( run "cd ${_path} && git status --porcelain ${_ign_sub}" )"
+	if [ "${_output}" != "" ]; then
+		return 1
+	else
+		return 0
+	fi
+}
+
+# Check if you are on a given branch.
+#
+# @param  string  Git repository path
+# @param  string  Desired branch name
+# @return integer Unix exit code
+git_on_given_branch() {
+	_path="${1}"
+	_branch="${2}"
+
+	_curr_branch="$( run "cd ${_path} && git branch --no-color | grep '^*' | sed 's/^*[[:space:]]*//g'" )"
+	if [ "${_branch}" != "${_curr_branch}" ]; then
+		return 1
+	else
+		return 0
+	fi
+}
+
+# Check if you are on a given tag.
+#
+# @param  string  Git repository path
+# @param  string  Desired tag name
+# @return integer Unix exit code
+git_on_given_tag() {
+	_path="${1}"
+	_tag="${2}"
+
+	_curr_tag="$( run "cd ${_path} && git tag --contains" )"
+	if [ "${_tag}" != "${_curr_tag}" ]; then
+		return 1
+	else
+		return 0
+	fi
+}
+
+# Check if you are on any branch at all.
+#
+# @param  string  Git repository path
+# @return integer Unix exit code
+git_on_any_branch() {
+	_path="${1}"
+
+	_branch="$( run "cd ${_path} && git branch --no-color | grep '^*' | sed 's/^*[[:space:]]*//g' | sed 's/^(.*)$/(nobranch)/g'" )"
+	if [ "${_branch}" != "(nobranch)" ]; then
+		return 0
+	else
+		return 1
+	fi
+}
+
+# Check if you are on any tag at all.
+#
+# @param  string  Git repository path
+# @return integer Unix exit code
+git_on_any_tag() {
+	_path="${1}"
+
+	_tag="$( run "cd ${_path} && git tag --contains" )"
+	if [ "${_tag}" != "" ]; then
+		return 0
+	else
+		return 1
+	fi
+}
+
+# Verifies if current state has a valid gpg signature.
+# * If you are on a tag (git verify-tag <curr_tag>
+# * If not on a tag (git verify-commit <curr_commit>
+#
+# @param  string  Git repository path
+# @return integer Unix exit code
+git_verify_any_valid_gpg() {
+	_path="${1}"
+
+	# If currently on a tag, verify this tag
+	if git_on_any_tag "${_path}"; then
+		_tag="$( run "cd ${_path} && git tag --contains" )"
+		if ! run "cd ${_path} && git verify-tag ${_tag}" > /dev/null 2>&1; then
+			return 1
+		else
+			return 0
+		fi
+
+	# If not on a tag, get current commit and verify it
+	else
+		_commit="$( run "cd ${_path} && git log -1 | head -1 | grep commit | sed 's/^commit[[:space:]]*//g'" )"
+		if ! run "cd ${_path} && git verify-commit ${_commit}" > /dev/null 2>&1; then
+			return 1
+		else
+			return 0
+		fi
+	fi
+}
+
+# If the git repo is on a branch, check if it
+# is in sync with the remote branch (no differences).
+# You also have to specify whether or not to ignore submodules.
+#
+# If the git repo is not on a branch return success.
+# @param  string  Git repository path
+# @param  string  Remote name (usually 'origin')
+# @param  boolean Ignore submodules? (1: Ignore, 0: Don't Ignore)
+# @return integer Unix exit code
+git_branch_is_in_sync_with_remote() {
+	_path="${1}"
+	_remote="${2}"
+	_ign_sub="${3}"
+
+	if [ "${_ign_sub}" = "1" ]; then
+		_ign_sub="--ignore-submodules"
+	else
+		_ign_sub=""
+	fi
+
+	if git_on_any_branch "${_path}"; then
+		_branch="$( run "cd ${_path} && git branch --no-color | grep '^*' | sed 's/^*[[:space:]]*//g'" )"
+		run "cd ${_path} && git fetch --no-recurse-submodules --no-tags --quiet"
+
+		if ! run "cd ${_path} && git diff --quiet ${_ign_sub} ${_remote}/${_branch}"; then
+			return 1
+		else
+			return 0
+		fi
+	fi
+
+	# Not on a branch? Return success.
+	return 0
+}
+
+############################################################
+# Main entry point
+############################################################
+
+# 1.) Mandatory arguments
+# -----------------------------------
+
+# @var string Repository path
+GIT_REPOSITORY_PATH=
+
+
+# 2.) Optional check arguments
+# -----------------------------------
+
+# @var boolean Check git status?
+CHECK_STATUS_WITH_SUB=0
+CHECK_STATUS_WITHOUT_SUB=0
+
+# @var boolean Diff against remote?
+CHECK_REMOTE_WITH_SUB=0
+CHECK_REMOTE_WITHOUT_SUB=0
+# @var string Remote name
+CHECK_REMOTE_NAME=
+
+# @var boolean Check if on a branch
+CHECK_BRANCH=0
+# @var string Check if on this given branch
+CHECK_BRANCH_NAME=
+
+# @var boolean Check if on a tag
+CHECK_TAG=0
+# @var string Check if on this given tag
+CHECK_TAG_NAME=
+
+# @var boolean Check If current commit has valid GPG signature
+CHECK_GPG=0
+
+
+# 3.) Optional output arguments
+# -----------------------------------
+
+# @boolean Output in nagios form?
+OUTPUT_NAGIOS=0
+OUTPUT_NAGIOS_NAME=
+
+
+# 4.) Nagios error codes
+# -----------------------------------
+EXIT_OK=0
+EXIT_WARN=1
+EXIT_ERR=2
+EXIT_UNKNOWN=3
+
+############################################################
+# Retrieve arguments
+############################################################
+while test -n "${1:-}"; do
+
+	case "$1" in
+
+		# ---- 1. Git repository path
+		-d)
+			# Get next arg in list (Path)
+			shift
+			GIT_REPOSITORY_PATH="${1}"
+			if ! is_git_dir "${GIT_REPOSITORY_PATH}"; then
+				echo "Not a valid git directory"
+				exit $EXIT_UNKNOWN
+			fi
+			;;
+
+		# ---- 2. Output options
+		-n)
+			OUTPUT_NAGIOS=1
+			# Check optional name
+			if [ "${2:-}" != "" ]; then
+				if [ "${2}" != "-d" ] &&
+				   [ "${2}" != "-n" ] &&
+				   [ "${2}" != "-s" ] &&
+				   [ "${2}" != "-S" ] &&
+				   [ "${2}" != "-r" ] &&
+				   [ "${2}" != "-R" ] &&
+				   [ "${2}" != "-b" ] &&
+				   [ "${2}" != "-t" ] &&
+				   [ "${2}" != "-g" ] &&
+				   [ "${2}" != "-v" ] &&
+				   [ "${2}" != "-h" ]; then
+					shift
+					OUTPUT_NAGIOS_NAME="${1}"
+				fi
+			fi
+
+			;;
+
+		# ---- 3. Check status
+		-s)
+			if [ "${CHECK_STATUS_WITHOUT_SUB}" = "1" ]; then
+				echo "Error, -S and -s are mutually exclusive."
+				echo "Only specify one of then."
+				exit $EXIT_UNKNOWN
+			fi
+			CHECK_STATUS_WITH_SUB=1
+			;;
+		-S)
+			if [ "${CHECK_STATUS_WITH_SUB}" = "1" ]; then
+				echo "Error, -S and -s are mutually exclusive."
+				echo "Only specify one of then."
+				exit $EXIT_UNKNOWN
+			fi
+			CHECK_STATUS_WITHOUT_SUB=1
+			;;
+
+		# ---- 4. Check remote
+		-r)
+			if [ "${CHECK_REMOTE_WITHOUT_SUB}" = "1" ]; then
+				echo "Error, -R and -r are mutually exclusive."
+				echo "Only specify one of then."
+				exit $EXIT_UNKNOWN
+			fi
+			CHECK_REMOTE_WITH_SUB=1
+
+			if [ "${2:-}" = "" ]; then
+				echo "Error, -r requires remote name to be specified"
+				exit $EXIT_UNKNOWN
+			fi
+			# Get remote name
+			shift
+			CHECK_REMOTE_NAME="${1}"
+			;;
+		-R)
+			if [ "${CHECK_REMOTE_WITH_SUB}" = "1" ]; then
+				echo "Error, -R and -r are mutually exclusive."
+				echo "Only specify one of then."
+				exit $EXIT_UNKNOWN
+			fi
+			CHECK_REMOTE_WITHOUT_SUB=1
+
+			if [ "${2:-}" = "" ]; then
+				echo "Error, -R requires remote name to be specified"
+				exit $EXIT_UNKNOWN
+			fi
+			# Get remote name
+			shift
+			CHECK_REMOTE_NAME="${1}"
+			;;
+
+		# ---- 5. Check branch
+		-b)
+			if [ "${CHECK_TAG}" = "1" ]; then
+				echo "Error, -b and -t are mutually exclusive."
+				echo "Only specify one of then."
+				exit $EXIT_UNKNOWN
+			fi
+			CHECK_BRANCH=1
+
+			# Check optional branch name
+			if [ "${2:-}" != "" ]; then
+				if [ "${2}" != "-d" ] &&
+				   [ "${2}" != "-n" ] &&
+				   [ "${2}" != "-s" ] &&
+				   [ "${2}" != "-S" ] &&
+				   [ "${2}" != "-r" ] &&
+				   [ "${2}" != "-R" ] &&
+				   [ "${2}" != "-b" ] &&
+				   [ "${2}" != "-t" ] &&
+				   [ "${2}" != "-g" ] &&
+				   [ "${2}" != "-v" ] &&
+				   [ "${2}" != "-h" ]; then
+					shift
+					CHECK_BRANCH_NAME="${1}"
+				fi
+			fi
+			;;
+
+		# ---- 6. Check tag
+		-t)
+			if [ "${CHECK_BRANCH}" = "1" ]; then
+				echo "Error, -b and -t are mutually exclusive."
+				echo "Only specify one of then."
+				exit $EXIT_UNKNOWN
+			fi
+			CHECK_TAG=1
+
+			# Check optional tag name
+			if [ "${2:-}" != "" ]; then
+				if [ "${2}" != "-d" ] &&
+				   [ "${2}" != "-n" ] &&
+				   [ "${2}" != "-s" ] &&
+				   [ "${2}" != "-S" ] &&
+				   [ "${2}" != "-r" ] &&
+				   [ "${2}" != "-R" ] &&
+				   [ "${2}" != "-b" ] &&
+				   [ "${2}" != "-t" ] &&
+				   [ "${2}" != "-g" ] &&
+				   [ "${2}" != "-v" ] &&
+				   [ "${2}" != "-h" ]; then
+					shift
+					CHECK_TAG_NAME="${1}"
+				fi
+			fi
+			;;
+
+		# ---- 7. Check gpg
+		-g)
+			CHECK_GPG=1
+			;;
+
+		# ---- 8. Version/Help
+		-v)
+			print_version
+			exit $EXIT_OK
+			;;
+		-h)
+			print_usage
+			exit $EXIT_OK
+			;;
+
+		# ---- 9. Unknown
+		*)
+			printf "Unknown argument: %s\n" "$1"
+			print_usage
+			exit $EXIT_UNKNOWN
+			;;
+	esac
+	shift
+done
+
+
+############################################################
+# Validate requirements
+############################################################
+
+
+if [ "${GIT_REPOSITORY_PATH}" = "" ]; then
+	echo "Error, -d is mandatory"
+	exit $EXIT_UNKNOWN
+fi
+
+if ! is_git_dir "${GIT_REPOSITORY_PATH}"; then
+	echo "Error, Not a git directory: ${GIT_REPOSITORY_PATH}"
+	exit $EXIT_UNKNOWN
+fi
+
+
+############################################################
+# Get some information
+############################################################
+
+NAGIOS_EXIT_CODE="${EXIT_OK}"
+NAGIOS_EXIT_TEXT=""
+
+
+# Path
+NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Repository: ${GIT_REPOSITORY_PATH}" )"
+# Branch, Tag or detached HEAD
+if git_on_any_branch "${GIT_REPOSITORY_PATH}"; then
+	NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Repository: On branch '$(get_current_branch "${GIT_REPOSITORY_PATH}")'" )"
+elif  git_on_any_tag "${GIT_REPOSITORY_PATH}"; then
+	NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Repository: On tag: '$(get_current_tag "${GIT_REPOSITORY_PATH}")'" )"
+else
+	NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Repository: On detached HEAD" )"
+fi
+
+
+############################################################
+# Do the checks
+############################################################
+
+##
+## 01. Check git status
+##
+if [ "${CHECK_STATUS_WITH_SUB}" = "1" ]; then
+	if ! git_status "${GIT_REPOSITORY_PATH}" "0"; then
+		NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_ERR}" )"
+		NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git status: [ERR] unclean (with submodule)")"
+	else
+		NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_OK}" )"
+		NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git status: [OK]  clean (with submodule)")"
+	fi
+
+elif [ "${CHECK_STATUS_WITHOUT_SUB}" = "1" ]; then
+	if ! git_status "${GIT_REPOSITORY_PATH}" "1"; then
+		NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_ERR}" )"
+		NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git status: [ERR] unclean (without submodule)")"
+	else
+		NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_OK}" )"
+		NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git status: [OK]  clean (without submodule)")"
+	fi
+fi
+
+
+##
+## 02. Check git remote diff
+##
+if [ "${CHECK_REMOTE_WITH_SUB}" = "1" ]; then
+
+	# 0.2.1 Check if there is a remote in the first place
+	if ! has_remote "${GIT_REPOSITORY_PATH}"; then
+		NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_ERR}" )"
+		NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git remote: [ERR] No remote available")"
+	else
+		if ! git_branch_is_in_sync_with_remote "${GIT_REPOSITORY_PATH}" "${CHECK_REMOTE_NAME}" "0"; then
+			NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_ERR}" )"
+			NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git remote: [ERR] Differs from '${CHECK_REMOTE_NAME}' (with submodule)")"
+		else
+			NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_OK}" )"
+			NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git remote: [OK]  Equals with '${CHECK_REMOTE_NAME}' (with submodule)")"
+		fi
+	fi
+
+elif [ "${CHECK_REMOTE_WITHOUT_SUB}" = "1" ]; then
+
+	# 0.2.1 Check if there is a remote in the first place
+	if ! has_remote "${GIT_REPOSITORY_PATH}"; then
+		NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_ERR}" )"
+		NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git remote: [ERR] No remote available")"
+	else
+		if ! git_branch_is_in_sync_with_remote "${GIT_REPOSITORY_PATH}" "${CHECK_REMOTE_NAME}" "1"; then
+			NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_ERR}" )"
+			NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git remote: [ERR] Differs from '${CHECK_REMOTE_NAME}' (without submodule)")"
+		else
+			NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_OK}" )"
+			NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git remote: [OK]  Equals with '${CHECK_REMOTE_NAME}' (without submodule)")"
+		fi
+	fi
+fi
+
+
+##
+## 03. Check if git is on a branch (any or specific)
+##
+if [ "${CHECK_BRANCH}" = "1" ]; then
+
+	# 3.1 On a specific branch
+	if [ "${CHECK_BRANCH_NAME}" != "" ]; then
+		if ! git_on_given_branch "${GIT_REPOSITORY_PATH}" "${CHECK_BRANCH_NAME}"; then
+			NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_ERR}" )"
+			NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git Branch: [ERR] Not on branch '${CHECK_BRANCH_NAME}'")"
+		else
+			NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_OK}" )"
+			NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git Branch: [OK]  On branch '${CHECK_BRANCH_NAME}'")"
+		fi
+	else
+		if ! git_on_any_branch "${GIT_REPOSITORY_PATH}"; then
+			NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_ERR}" )"
+			NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git Branch: [ERR] Not on a branch")"
+		else
+			NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_OK}" )"
+			NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git Branch: [OK]  On a branch")"
+		fi
+	fi
+fi
+
+
+
+##
+## 04. Check if git is on a tag (any or specific)
+##
+if [ "${CHECK_TAG}" = "1" ]; then
+
+	# 3.1 On a specific branch
+	if [ "${CHECK_TAG_NAME}" != "" ]; then
+		if ! git_on_given_tag "${GIT_REPOSITORY_PATH}" "${CHECK_TAG_NAME}"; then
+			NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_ERR}" )"
+			NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git Tag   : [ERR] Not on tag '${CHECK_TAG_NAME}'")"
+		else
+			NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_OK}" )"
+			NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git Tag   : [OK]  On tag '${CHECK_TAG_NAME}'")"
+		fi
+	else
+		if ! git_on_any_tag "${GIT_REPOSITORY_PATH}"; then
+			NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_ERR}" )"
+			NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git Tag   : [ERR] Not on a tag")"
+		else
+			NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_OK}" )"
+			NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git Tag   : [OK]  On a tag")"
+		fi
+	fi
+fi
+
+
+
+##
+## 05. Check valid GPG signature of current commit
+##
+if [ "${CHECK_GPG}" = "1" ]; then
+	if ! git_verify_any_valid_gpg "${GIT_REPOSITORY_PATH}"; then
+		NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_ERR}" )"
+		NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git GPG   : [ERR] Current commit without valid GPG signature")"
+	else
+		NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_OK}" )"
+		NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git GPG   : [OK]  Current commit has valid GPG signature")"
+	fi
+fi
+
+
+
+##
+## 06. Final output
+##
+if [ "${OUTPUT_NAGIOS}" = "1" ]; then
+	if [ "${OUTPUT_NAGIOS_NAME}" != "" ]; then
+		PROJECT_NAME="${OUTPUT_NAGIOS_NAME}"
+	else
+		PROJECT_NAME="<Project>"
+	fi
+
+	if [ "${NAGIOS_EXIT_CODE}" = "${EXIT_OK}" ]; then
+		echo "[OK] ${PROJECT_NAME} git repo is healthy."
+	elif  [ "${NAGIOS_EXIT_CODE}" = "${EXIT_WARN}" ]; then
+		echo "[WARN] ${PROJECT_NAME} git repo has warnings."
+	elif  [ "${NAGIOS_EXIT_CODE}" = "${EXIT_ERR}" ]; then
+		echo "[ERR] ${PROJECT_NAME} git repo has errors."
+	else
+		echo "[UNK] ${PROJECT_NAME} git repo is unknown."
+	fi
+fi
+
+echo "${NAGIOS_EXIT_TEXT}"
+exit "${NAGIOS_EXIT_CODE}"
