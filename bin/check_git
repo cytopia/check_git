@@ -421,9 +421,29 @@ git_branch_is_in_sync_with_remote() {
 
 	if git_on_any_branch "${_path}"; then
 		_branch="$( run "cd ${_path} && git branch --no-color | grep '^*' | sed 's/^*[[:space:]]*//g'" )"
-		run "cd ${_path} && git fetch --no-recurse-submodules --no-tags --quiet"
 
-		if ! run "cd ${_path} && git diff --quiet ${_ign_sub} ${_remote}/${_branch}"; then
+		# Try to fetch remote 9 times in case something goes wrong
+		for i in 1 2 3 4 5 6 7 8 9; do
+			# Break on early success
+			set +e
+			if run "cd ${_path} && git fetch --no-recurse-submodules --no-tags --quiet > /dev/null 2>&1"; then
+				set -e # Re-enable break on error
+				break
+			fi
+		done
+
+		# Try to diff remote 9 times in case something goes wrong
+		for i in 1 2 3 4 5 6 7 8 9; do
+			set +e
+			_diff="$( run "cd ${_path} && git diff ${_ign_sub} ${_remote}/${_branch} 2>/dev/null"; )"
+			_exit="$?"
+			if [ "${_exit}" = "0" ]; then
+				set -e # Re-enable break on error
+				break
+			fi
+		done
+
+		if [ "${_diff}" != "" ];  then
 			return 1
 		else
 			return 0
@@ -705,7 +725,8 @@ fi
 NAGIOS_EXIT_CODE="${EXIT_OK}"
 NAGIOS_EXIT_TEXT=""
 
-
+# Git
+NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Version: $(git --version | head -1)" )"
 # Path
 NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Repository: ${GIT_REPOSITORY_PATH}" )"
 # Branch, Tag or detached HEAD
@@ -874,6 +895,10 @@ if [ "${OUTPUT_NAGIOS}" = "1" ]; then
 
 	# Prepend Nagios status line
 	NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_STATUS_LINE}" "${NAGIOS_EXIT_TEXT}" )"
+
+
+	# Make [ERR] to [ERROR] (for icinga colored display)
+	NAGIOS_EXIT_TEXT="$( echo "${NAGIOS_EXIT_TEXT}" |  sed 's/\[ERR\]/\[CRITICAL\]/g' )"
 fi
 
 
