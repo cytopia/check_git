@@ -8,7 +8,7 @@ INFO_GPGKEY="0x695128A2"
 INFO_LICENSE="MIT"
 INFO_GITHUB="https://github.com/cytopia/check_git"
 INFO_DATE="2016-12-05"
-INFO_VERSION="0.1"
+INFO_VERSION="0.2"
 
 
 ################################################################################
@@ -17,9 +17,9 @@ INFO_VERSION="0.1"
 
 print_usage() {
 
-	echo "USAGE: check_git -d <git dir> [-n [<name>]] [-s|-S] [-r|-R <remote>] [-b [<branch>]|-t [<tag>]] [-g]"
-	echo "                 -h"
-	echo "                 -v"
+	echo "Usage: check_git -d <git dir> [-n [<name>]] [-l logfile] [-s|-S] [-r|-R <remote>] [-b [<branch>]|-t [<tag>]] [-g]"
+	echo "OR               -h"
+	echo "OR               -v"
 
 	echo
 	echo "check_git can validate a git repository by different requirements"
@@ -39,6 +39,13 @@ print_usage() {
 
 	echo "   -n [<name>]        Create nagios check outout. You can optionally"
 	echo "                      add a name for the output display."
+	echo
+
+	echo "   -l <logfile>       Log to file instead of stdout."
+	echo "                      This is especially useful if you want to integrate this check via nagios."
+	echo "                      You can then add a cronjob which periodically logs to file (as your deploy user)"
+	echo "                      and the nagios check simply parses the logfile via 'check_git_log'."
+	echo "                      Requires '-n'."
 	echo
 
 	echo " Optional arguments (checks):"
@@ -471,6 +478,9 @@ CHECK_GPG=0
 # @boolean Output in nagios form?
 OUTPUT_NAGIOS=0
 OUTPUT_NAGIOS_NAME=
+#@boolean Output into logfile?
+OUTPUT_LOGFILE=0
+OUTPUT_LOGFILE_NAME=
 
 
 # 4.) Nagios error codes
@@ -518,7 +528,17 @@ while test -n "${1:-}"; do
 					OUTPUT_NAGIOS_NAME="${1}"
 				fi
 			fi
+			;;
+		-l)
+			OUTPUT_LOGFILE=1
 
+			if [ "${2:-}" = "" ]; then
+				echo "Error, -l requires a logfile path to be specified"
+				exit $EXIT_UNKNOWN
+			fi
+			# Get path name
+			shift
+			OUTPUT_LOGFILE_NAME="${1}"
 			;;
 
 		# ---- 3. Check status
@@ -670,6 +690,13 @@ if ! is_git_dir "${GIT_REPOSITORY_PATH}"; then
 	exit $EXIT_UNKNOWN
 fi
 
+# Logfile output requires nagios log format
+if [ "${OUTPUT_LOGFILE}" = "1" ]; then
+	if [ "${OUTPUT_NAGIOS}" != "1" ]; then
+		echo "Error, Setting '-l' quires '-n'!"
+		exit $EXIT_UNKNOWN
+	fi
+fi
 
 ############################################################
 # Get some information
@@ -825,7 +852,7 @@ fi
 
 
 ##
-## 06. Final output
+## 06. Create Nagios output?
 ##
 if [ "${OUTPUT_NAGIOS}" = "1" ]; then
 	if [ "${OUTPUT_NAGIOS_NAME}" != "" ]; then
@@ -834,16 +861,30 @@ if [ "${OUTPUT_NAGIOS}" = "1" ]; then
 		PROJECT_NAME="<Project>"
 	fi
 
+	NAGIOS_STATUS_LINE=
 	if [ "${NAGIOS_EXIT_CODE}" = "${EXIT_OK}" ]; then
-		echo "[OK] ${PROJECT_NAME} git repo is healthy."
+		NAGIOS_STATUS_LINE="[OK] ${PROJECT_NAME} git repo is healthy."
 	elif  [ "${NAGIOS_EXIT_CODE}" = "${EXIT_WARN}" ]; then
-		echo "[WARN] ${PROJECT_NAME} git repo has warnings."
+		NAGIOS_STATUS_LINE="[WARN] ${PROJECT_NAME} git repo has warnings."
 	elif  [ "${NAGIOS_EXIT_CODE}" = "${EXIT_ERR}" ]; then
-		echo "[ERR] ${PROJECT_NAME} git repo has errors."
+		NAGIOS_STATUS_LINE="[ERR] ${PROJECT_NAME} git repo has errors."
 	else
-		echo "[UNK] ${PROJECT_NAME} git repo is unknown."
+		NAGIOS_STATUS_LINE="[UNK] ${PROJECT_NAME} git repo is unknown."
 	fi
+
+	# Prepend Nagios status line
+	NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_STATUS_LINE}" "${NAGIOS_EXIT_TEXT}" )"
 fi
 
-printf "${NAGIOS_EXIT_TEXT}\n"
-exit "${NAGIOS_EXIT_CODE}"
+
+##
+## 07. Log to file or output?
+##
+if [ "${OUTPUT_LOGFILE}" = "1" ]; then
+	echo "${NAGIOS_EXIT_TEXT}" > "${OUTPUT_LOGFILE_NAME}"
+	echo "${NAGIOS_EXIT_CODE}" >> "${OUTPUT_LOGFILE_NAME}"
+	exit "${EXIT_OK}"
+else
+	printf "${NAGIOS_EXIT_TEXT}\n"
+	exit "${NAGIOS_EXIT_CODE}"
+fi
