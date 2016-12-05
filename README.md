@@ -2,6 +2,10 @@
 
 Nagios plugin to verify a git directory.
 
+[![Build Status](https://travis-ci.org/cytopia/check_git.svg?branch=master)](https://travis-ci.org/cytopia/check_git)
+ [![Latest Stable Version](https://poser.pugx.org/cytopia/check_git/v/stable)](https://packagist.org/packages/cytopia/check_git) [![Total Downloads](https://poser.pugx.org/cytopia/check_git/downloads)](https://packagist.org/packages/cytopia/check_git) [![Latest Unstable Version](https://poser.pugx.org/cytopia/check_git/v/unstable)](https://packagist.org/packages/cytopia/check_git) [![License](https://poser.pugx.org/cytopia/check_git/license)](http://opensource.org/licenses/MIT)
+ [![POSIX](https://img.shields.io/badge/posix-100%25-brightgreen.svg)](https://en.wikipedia.org/?title=POSIX)
+ [![Type](https://img.shields.io/badge/type-%2Fbin%2Fsh-red.svg)](https://en.wikipedia.org/?title=Bourne_shell)
 
 ## Usage
 
