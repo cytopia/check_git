@@ -278,6 +278,42 @@ get_current_tag() {
 	fi
 }
 
+
+
+# Get the signee of the current git commit or tag.
+# * If you are on a tag (git verify-tag <curr_tag>
+# * If not on a tag (git verify-commit <curr_commit>
+#
+# Returns 1 if current commit/tag is unsigned.
+# Returns 0 if current commit/tag is signed (valid or invalid)
+#
+#
+# @param  string  Git repository path
+# @output string  Signee name
+# @return integer Unix exit code
+get_current_gpg_signer() {
+	_path="${1}"
+
+	# If currently on a tag, verify this tag
+	if git_on_any_tag "${_path}"; then
+		_tag="$( run "cd ${_path} && git tag --contains" )"
+		_signee="$( run "cd ${_path} && git verify-tag ${_tag} 2>&1 | grep -Eo '\".*\"'" | sed 's/^"//g' | sed 's/"$//g' )"
+
+	# If not on a tag, get current commit and verify it
+	else
+		_commit="$( run "cd ${_path} && git log -1 | head -1 | grep commit | sed 's/^commit[[:space:]]*//g'" )"
+		_signee="$( run "cd ${_path} && git verify-commit ${_commit} 2>&1 | grep -Eo '\".*\"'" | sed 's/^"//g' | sed 's/"$//g' )"
+	fi
+
+	if [ "${_signee}" = "" ]; then
+		echo ""
+		return 1
+	else
+		echo "${_signee}"
+		return 0
+	fi
+}
+
 ################################################################################
 # Git functions
 ################################################################################
@@ -362,13 +398,14 @@ git_on_any_branch() {
 git_on_any_tag() {
 	_path="${1}"
 
-	_tag="$( run "cd ${_path} && git tag --contains" )"
-	if [ "${_tag}" != "" ]; then
+	if run "cd ${_path} && git log --pretty=format:'%d' --abbrev-commit --date=short -1 | grep -Eq 'tag:.*?,'"; then
 		return 0
 	else
 		return 1
 	fi
 }
+
+
 
 # Verifies if current state has a valid gpg signature.
 # * If you are on a tag (git verify-tag <curr_tag>
@@ -861,12 +898,20 @@ fi
 ## 05. Check valid GPG signature of current commit
 ##
 if [ "${CHECK_GPG}" = "1" ]; then
+
+	GPG_SIGNEE="$( get_current_gpg_signer "${GIT_REPOSITORY_PATH}" || true)"
+
 	if ! git_verify_any_valid_gpg "${GIT_REPOSITORY_PATH}"; then
-		NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_ERR}" )"
-		NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git GPG   : [ERR] Current commit without valid GPG signature")"
+		if [ "${GPG_SIGNEE}" = "" ]; then
+			NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_ERR}" )"
+			NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git GPG   : [ERR] Current commit is not GPG signed")"
+		else
+			NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_WARN}" )"
+			NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git GPG   : [WARN] Current commit has untrusted GPG signature")"
+		fi
 	else
 		NAGIOS_EXIT_CODE="$( merge_exit_codes "${NAGIOS_EXIT_CODE}" "${EXIT_OK}" )"
-		NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git GPG   : [OK]  Current commit has valid GPG signature")"
+		NAGIOS_EXIT_TEXT="$( merge_text "${NAGIOS_EXIT_TEXT}" "Git GPG   : [OK]  Current commit has trusted GPG signature)")"
 	fi
 fi
 
