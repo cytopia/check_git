@@ -7,12 +7,51 @@ Nagios plugin to verify a git directory.
  [![POSIX](https://img.shields.io/badge/posix-100%25-brightgreen.svg)](https://en.wikipedia.org/?title=POSIX)
  [![Type](https://img.shields.io/badge/type-%2Fbin%2Fsh-red.svg)](https://en.wikipedia.org/?title=Bourne_shell)
 
+## Example
+
+
+### Check git status (without submodules)
+
+```
+$ check_git -d /shared/httpd/my-project/ -S -n My-Project
+[SUCCESS] My-Project git repo is healthy.
+[SUCCESS]  Git status: clean
+```
+
+### Check git status (with submodules) and make sure it is on branch 'develop'
+
+```
+$ check_git -d /shared/httpd/my-project/ -s -B develop -n My-Project
+[CRITICAL] My-Project git repo has errors.
+[SUCCESS]  Git status: clean
+[CRITICAL] Git status: submodule(s) unclean
+[SUCCESS]  Git Branch: on branch 'develop'
+```
+
+### Check if any tag is checked out
+```
+$ check_git -d /shared/httpd/my-project/ -t -n My-Project
+[CRITICAL] My-Project git repo has errors.
+[CRITICAL] Git Tag:    not on any tag
+```
+
+### Check if current HEAD (commit or tag) is gpg signed
+```
+$ check_git -d /shared/httpd/my-project/ -g -n My-Project
+[SUCCESS] My-Project git repo is healthy.
+[SUCCESS]  GPG Signed: Yes with key: 695128A2
+[SUCCESS]  GPG Pubkey: available
+[SUCCESS]  GPG Signer: cytopia <cytopia@everythingcli.org>
+[SUCCESS]  GPG Trust:  ULTIMATE
+```
+
 ## Usage
 
 ```shell
-USAGE: check_git -d <git dir> [-n [<name>]] [-s|-S] [-r|-R <remote>] [-b [<branch>]|-t [<tag>]] [-g]
-                 -h
-                 -v
+Usage: check_git -d <git dir> [-s|-S] [-r|-R <remote>] [-b] [-B <branch>] [-t] [-T <tag>]] [-g] [-G <hash>[,<hash>]] [-v]
+OR               -d <git dir> [-n <name>] [-l logfile] [-s|-S] [-r|-R <remote>] [-b] [-B <branch>] [-t] [-T <tag>]] [-g] [-G <hash>[,<hash>]] [-v]
+OR               -h
+OR               -V
 
 check_git can validate a git repository by different requirements
 You can have normal output or nagios (-n) compatible output to
@@ -24,8 +63,16 @@ integrate this into your monitoring system.
 
  Optional arguments (output):
 
-   -n [<name>]        Create nagios check outout. You can optionally
-                      add a name for the output display.
+   -v                 Be more verbose.
+
+   -n <name>          Create nagios style check outout.
+                      Removes colors and adds a project name to the first line.
+
+   -l <logfile>       Log to file instead of stdout.
+                      This is especially useful if you want to integrate this check via nagios.
+                      You can then add a cronjob which periodically logs to file (as your deploy user)
+                      and the nagios check simply parses the logfile via 'check_git_log'.
+                      Requires '-n'.
 
  Optional arguments (checks):
 
@@ -53,25 +100,50 @@ integrate this into your monitoring system.
                       This ignores any submodules.
                       To also check submodules use '-r'.
                       '-r' and '-R' are mutually exclusive.
-   -b [<branch>]      Check if repository is checkout out on a branch.
+   -b                 Check if repository is checkout out on a branch.
                       No detached HEAD or tag.
-                      You can also optionally specify the branch name the repository
-                      is supposed to be on.
-                      '-b' and '-t' are mutually exclusive.
+                      '-b', '-B', '-t' and '-T' are mutually exclusive.
 
-   -t [<tag>]         Check if repository is checkout out on a tag.
+   -B [<branch>]      Check if repository is checkout out on the specified branch.
+                      '-b', '-B', '-t' and '-T' are mutually exclusive.
+
+   -t                 Check if repository is checkout out on a tag.
                       No detached HEAD or branch.
-                      You can also optionally specify the tag name the repository
-                      is supposed to be on.
-                      '-b' and '-t' are mutually exclusive.
+                      '-b', '-B', '-t' and '-T' are mutually exclusive.
 
-   -g                 Check if current commit (independent of branch, tag or detached HEAD)
-                      is signed and has a valid GPG signature.
-                      For this to work, you will have to add your trusted
+   -T [<tag>]         Check if repository is checkout out on the specified tag.
+                      No detached HEAD or branch.
+                      '-b', '-B', '-t' and '-T' are mutually exclusive.
+
+   -g                 Check if current HEAD is signed and has a valid GPG signature.
+                      If current HEAD is a tag, the GPG signature of the tag is checked,
+                      instead of the signature of the current commit.
+                      For this to pass, you will also have to add your trusted
                       GPG public keys locally.
+                      Returns:
+                          Error, if not signed.
+                          Warning, if signed, but pubkey is not available.
+                          Warning, if signed, but pubkey is not trusted.
+                          OK, if signed, pubkey is available and trusted.
+                      '-g', and '-G' are mutually exclusive.
+
+   -G <hash>[,<hash>] Check if current HEAD is signed by the given key id (hash) and has a valid GPG signature.
+                      You can separate multiple key-id's via comma without space.
+                      key-id (hash) must be the last 8 characters (all uppercase) of the key.
+                      If current HEAD is a tag, the GPG signature of the tag is checked,
+                      instead of the signature of the current commit.
+                      For this to pass, you will also have to add your trusted
+                      GPG public keys locally.
+                      Returns:
+                          Error, if not signed.
+                          Error, if signed with a different key-id.
+                          Warning, if signed, but pubkey is not available.
+                          Warning, if signed, but pubkey is not trusted.
+                          OK, if signed, pubkey is available and trusted.
+                      '-g', and '-G' are mutually exclusive.
 
  Version and Help:
 
-   -v                 Show version information
+   -V                 Show version information
    -h                 Show this help screen
 ```
