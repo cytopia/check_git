@@ -23,7 +23,7 @@ INFO_AUTHOR="cytopia <cytopia@everythingcli.org>"
 INFO_GPGKEY="0x695128A2"
 INFO_LICENSE="MIT"
 INFO_GITHUB="https://github.com/cytopia/check_git"
-INFO_DATE="2016-12-07"
+INFO_DATE="2016-12-08"
 INFO_VERSION="0.4"
 
 
