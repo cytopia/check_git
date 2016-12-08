@@ -7,6 +7,11 @@ Nagios plugin to verify a git directory.
  [![POSIX](https://img.shields.io/badge/posix-100%25-brightgreen.svg)](https://en.wikipedia.org/?title=POSIX)
  [![Type](https://img.shields.io/badge/type-%2Fbin%2Fsh-red.svg)](https://en.wikipedia.org/?title=Bourne_shell)
 
+---
+
+#### Member of [awesome-nagios-plugins](https://github.com/cytopia/awesome-nagios-plugins)
+
+---
 
 ## Nagios / Icinga integration
 
