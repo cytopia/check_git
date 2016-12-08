@@ -24,7 +24,7 @@ INFO_GPGKEY="0x695128A2"
 INFO_LICENSE="MIT"
 INFO_GITHUB="https://github.com/cytopia/check_git"
 INFO_DATE="2016-12-08"
-INFO_VERSION="0.4"
+INFO_VERSION="0.5"
 
 
 ###
@@ -496,7 +496,7 @@ get_current_branch() {
 get_current_tag() {
 	_path="${1}"
 
-	_tag="$( run "cd ${_path} && git log --pretty=format:'%d' --abbrev-commit --date=short -1 | grep -Eo 'tag:.*?,' | sed 's/tag:[[:space:]]*//g' | sed 's/,$//g'" )"
+	_tag="$( run "cd ${_path} && git log --pretty=format:'%d' --abbrev-commit --date=short -1 | grep -Eo 'tag:.*?,' | sed 's/,.*$//g' | sed 's/tag:[[:space:]]*//g'" )"
 	if [ "${_tag}" = "" ]; then
 		echo
 		return 1
