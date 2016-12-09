@@ -9,7 +9,8 @@ Nagios plugin to verify a git directory.
 
 ---
 
-#### Member of [awesome-nagios-plugins](https://github.com/cytopia/awesome-nagios-plugins)
+| [![Awesome-Nagios-Plugins](https://raw.githubusercontent.com/cytopia/awesome-nagios-plugins/master/doc/img/awesome-nagios.png)](https://github.com/cytopia/awesome-nagios-plugins) | Find more [awesome nagios plugins](https://github.com/cytopia/awesome-nagios-plugins) |
+|---|---|
 
 ---
 
