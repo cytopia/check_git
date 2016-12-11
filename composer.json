@@ -3,7 +3,7 @@
 	"description": "Nagios plugin to verify a git repository.",
 	"type": "library",
 	"keywords": ["nagios", "nagios-plugin", "icinga", "git"],
-	"homepage": "https://github.com/cytopia/check_drupal",
+	"homepage": "https://github.com/cytopia/check_git",
 	"license": "MIT",
 	"authors": [
 		{

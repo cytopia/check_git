@@ -20,5 +20,5 @@ releases:
         name: check_git_log
         url: "file:///bin/check_git_log"
         description: "Check the logfile created by check_git"
-        checksum: f3abb5a6f37ed8df727981d558b75622
+        checksum: eb1476d31acce38892e58120d53ee5fd
 

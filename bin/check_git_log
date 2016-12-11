@@ -80,7 +80,7 @@ print_help() {
 	# Show help and details
 	printf "Nagios plugin that will parse the logfile created by 'check_git'.\n\n"
 
-	printf "  -f <logfile>           The full path to logfile created by 'check_drupal'\n\n"
+	printf "  -f <logfile>           The full path to logfile created by 'check_git'\n\n"
 
 	printf "  --help                 Show this help\n"
 	printf "  --version              Show version information.\n"
