@@ -1,6 +1,6 @@
-# Check git
+# check_git
 
-Nagios plugin to verify a git directory.
+Nagios plugin to verify a git directory. Checks include `git status` (with or without submodules), HEAD is on a branch or tag (any or specified), has diffs against remote (with or without submodules), HEAD (tag, branch or commit) is GPG signed and the signature is valid.
 
 [![Build Status](https://travis-ci.org/cytopia/check_git.svg?branch=master)](https://travis-ci.org/cytopia/check_git)
  [![Latest Stable Version](https://poser.pugx.org/cytopia/check_git/v/stable)](https://packagist.org/packages/cytopia/check_git) [![Total Downloads](https://poser.pugx.org/cytopia/check_git/downloads)](https://packagist.org/packages/cytopia/check_git) [![Latest Unstable Version](https://poser.pugx.org/cytopia/check_git/v/unstable)](https://packagist.org/packages/cytopia/check_git) [![License](https://poser.pugx.org/cytopia/check_git/license)](http://opensource.org/licenses/MIT)
@@ -9,26 +9,28 @@ Nagios plugin to verify a git directory.
 
 ---
 
-| [![Awesome-Nagios-Plugins](https://raw.githubusercontent.com/cytopia/awesome-nagios-plugins/master/doc/img/awesome-nagios.png)](https://github.com/cytopia/awesome-nagios-plugins) | Find more [awesome nagios plugins](https://github.com/cytopia/awesome-nagios-plugins) |
+| [![Awesome-Nagios-Plugins](https://raw.githubusercontent.com/cytopia/awesome-nagios-plugins/master/doc/img/awesome-nagios.png)](https://github.com/cytopia/awesome-nagios-plugins) | Find more plugins at [Awesome Nagios](https://github.com/cytopia/awesome-nagios-plugins) |
 |---|---|
+| [![Icinga Exchange](https://raw.githubusercontent.com/cytopia/awesome-nagios-plugins/master/doc/img/icinga.png)](https://exchange.icinga.com/cytopia) | **Find more plugins at [Icinga Exchange](https://exchange.icinga.com/cytopia)** |
+| [![Nagios Exchange](https://raw.githubusercontent.com/cytopia/awesome-nagios-plugins/master/doc/img/nagios.png)](https://exchange.nagios.org/directory/Owner/cytopia/1) | **Find more plugins at [Nagios Exchange](https://exchange.nagios.org/directory/Owner/cytopia/1)** |
 
 ---
 
-## Nagios / Icinga integration
+## 1. Nagios / Icinga integration
 
 There are two ways how to integrate this with nagios or icinga.
 
-### 1. Direct approach (not recommended)
+### 1.1 Direct approach (not recommended)
 
 Use `check_git` directly from nagios and test a repository every time a check is triggered. In order for the output to be usaeble by Nagios / Icinga, you will have to use `-n <NAME>`, which will amongst others remove the shell colors from the output. Correct exit codes for `success`, `warning`, `error` and `unknown` are thrown by default.
 
 **Example**
 
-```
-check_git -d <PATH_TO_GIT_DIR> -s -n <PROJECT_NAME>
+```shell
+$ check_git -d <PATH_TO_GIT_DIR> -s -n <PROJECT_NAME>
 ```
 
-### 2. Approach to just parse a logfile (recommended)
+### 1.2 Approach to just parse a logfile (recommended)
 This approach reduces the overhead to check a repository every 5min by nagios, and rather check the logfile created by `check_git`.
 Sometimes a full check (status, gpg, remote check, etc) can take up to a few seconds and u don't want to stress the system every 5min.
 
@@ -36,31 +38,31 @@ For that to work, you simply add `check_git` to your crontab and only check your
 Nagios / Icinga can still check the logfile every 5 minutes.
 
 **Crontab**
-```
+```shell
 0 0,4,8,12,16,20 * * * /full/path/to/check_git -d <GIT_DIR> -n <PROJECT_NAME> -l /var/log/git/<project-name>.log
 ```
 This will update the logfile under `/var/log/git/<project-name>.log` every 4 hours and nagios/icinga can however check on it as often as they want via:
 
 **The actual check**
-```
-check_git_log -f /var/log/git/<project-name>.log
+```shell
+$ check_git_log -f /var/log/git/<project-name>.log
 ```
 
 
-## Examples
+## 2. Examples
 
 The following examples show each options separately, you can of course combine most checks.
 
-### Check git status
+### 2.1 Check git status
 
 Without submodules (`-s`)
-```
+```shell
 $ check_git -d /shared/httpd/my-project/ -s -n My-Project
 [SUCCESS] My-Project git repo is healthy.
 [SUCCESS]  Git status: clean
 ```
 With submodules (`-S`)
-```
+```shell
 $ check_git -d /shared/httpd/my-project/ -S -n My-Project
 [CRITICAL] My-Project git repo has errors.
 [SUCCESS]  Git status: clean
@@ -68,39 +70,39 @@ $ check_git -d /shared/httpd/my-project/ -S -n My-Project
 ```
 
 
-### Check status of HEAD (branch or tag)
+### 2.2 Check status of HEAD (branch or tag)
 
 HEAD must be on a branch (any branch `-b`)
-```
+```shell
 $ check_git -d /shared/httpd/my-project/ -b -n My-Project
 [SUCCESS] My-Project git repo is healthy.
 [SUCCESS]  Git Branch: on branch 'develop'
 ```
 
 HEAD must be on branch *develop* (`-B`)
-```
+```shell
 $ check_git -d /shared/httpd/my-project/ -B develop -n My-Project
 [SUCCESS] My-Project git repo is healthy.
 [SUCCESS]  Git Branch: on branch 'develop'
 ```
 
 HEAD must be on a tag (any tag `-t`)
-```
+```shell
 $ check_git -d /shared/httpd/my-project/ -t -n My-Project
 [CRITICAL] My-Project git repo has errors.
 [CRITICAL] Git Tag:    not on any tag
 ```
 
 HEAD must be on tag 0.3 (`-T`)
-```
+```shell
 $ check_git -d /shared/httpd/my-project/ -T 0.3 -n My-Project
 [CRITICAL] My-Project git repo has errors.
 [CRITICAL] Git Tag:    on tag '0.2', but should be on: '0.3'
 ```
 
-### Check GPG signature of commit/tag
+### 2.3 Check GPG signature of commit/tag
 Check if the current commit (or if HEAD is a tag, the current tag) is signed with gpg and valid (`-g`).
-```
+```shell
 $ check_git -d /shared/httpd/my-project/ -g -n My-Project
 [SUCCESS] My-Project git repo is healthy.
 [SUCCESS]  GPG Signed: Yes with key: 695128A2
@@ -110,7 +112,7 @@ $ check_git -d /shared/httpd/my-project/ -g -n My-Project
 ```
 
 Check if the current commit (or if HEAD is a tag, the current tag) is signed with gpg, valid and matches one of the specified key ids (`-G`).
-```
+```shell
 $ check_git -d /shared/httpd/my-project/ -G 695128A2,00000000,11111111,22222222 -n My-Project
 [SUCCESS] My-Project git repo is healthy.
 [SUCCESS]  GPG Signed: Yes with expected key: 695128A2
@@ -119,27 +121,27 @@ $ check_git -d /shared/httpd/my-project/ -G 695128A2,00000000,11111111,22222222 
 [SUCCESS]  GPG Trust:  ULTIMATE
 ```
 
-### Check Diff against remote
+### 2.4 Check Diff against remote
 
 Check if you have new code to pull (only makes sense if you are on a branch). Check excluding submodules (`-R`)
-```
+```shell
 $ check_git -d /shared/httpd/my-project/ -R origin -n My-Project
 [SUCCESS] My-Project git repo is healthy.
 [SUCCESS]  Git remote: equals with 'origin'
 ```
 
 Check if you have new code to pull (only makes sense if you are on a branch). Check including submodules (`-r`)
-```
+```shell
 $ check_git -d /shared/httpd/my-project/ -r origin -n My-Project
 [CRITICAL] My-Project git repo has errors.
 [SUCCESS]  Git remote: equals with 'origin'
 [CRITICAL] Git remote: submodule(s) differs from 'origin'
 ```
 
-### Show additional verbose output
+### 2.5 Show additional verbose output
 
 Show some verbose output (will also be visible within nagios extended output)
-```
+```shell
 $ check_git -d /shared/httpd/my-project/ -v -n My-Project
 [SUCCESS] My-Project git repo is healthy.
 [INFO]     Bin:        git version 2.10.2
@@ -149,9 +151,8 @@ $ check_git -d /shared/httpd/my-project/ -v -n My-Project
 [INFO]     GPG:        signed 695128A2
 ```
 
-Check if current commit (only makes sense if you have checked out a branch) is equal with
 
-## Usage
+## 3. Usage
 
 ```shell
 Usage: check_git -d <git dir> [-s|-S] [-r|-R <remote>] [-b] [-B <branch>] [-t] [-T <tag>]] [-g] [-G <hash>[,<hash>]] [-v]

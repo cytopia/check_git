@@ -8,17 +8,17 @@ type: Plugin
 license: MIT
 releases:
   -
-    name: 0.5
-    description: "0.5 Release"
+    name: 0.6
+    description: "0.6 Release"
     files:
       -
         name: check_git
         url: "file:///bin/check_git"
-        description: "Fifth release"
-        checksum: 21d215f8387f30608b8d336d7818d000
+        description: "Directly check a git directory."
+        checksum: 3e1ec28d5f7c2b44d8ddfb5429e8e4e4
       -
         name: check_git_log
         url: "file:///bin/check_git_log"
-        description: "Fifth release"
-        checksum: 35981418674ef10d783f51acc58215f0
+        description: "Check the logfile created by check_git"
+        checksum: f3abb5a6f37ed8df727981d558b75622
 
