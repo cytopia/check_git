@@ -496,7 +496,7 @@ get_current_branch() {
 get_current_tag() {
 	_path="${1}"
 
-	_tag="$( run "cd ${_path} && git log --pretty=format:'%d' --abbrev-commit --date=short -1 | grep -Eo 'tag:.*?,' | sed 's/,.*$//g' | sed 's/tag:[[:space:]]*//g'" )"
+	_tag="$( run "cd ${_path} && git log --pretty=format:'%d' --abbrev-commit --date=short -1 | grep -Eo 'tag:.*?[,)]' | sed 's/[,)].*$//g' | sed 's/tag:[[:space:]]*//g'" )"
 	if [ "${_tag}" = "" ]; then
 		echo
 		return 1
